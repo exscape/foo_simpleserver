@@ -12,29 +12,29 @@ extern int announceCount;
 
 class play_callback_handler : public play_callback_static
 {
-	void on_playback_new_track(metadb_handle_ptr p_track) {
-		// Wake all waiting threads
-		int oldCount = announceCount;
-		{
-			std::unique_lock<std::mutex> lock(mutex);
-			announceCount++;
-		}
-		announceCV.notify_all();
-	}
+    void on_playback_new_track(metadb_handle_ptr p_track) {
+        // Wake all waiting threads
+        int oldCount = announceCount;
+        {
+            std::unique_lock<std::mutex> lock(mutex);
+            announceCount++;
+        }
+        announceCV.notify_all();
+    }
 
-	void on_playback_edited(metadb_handle_ptr p_track) {}
-	void on_playback_starting(play_control::t_track_command p_command, bool p_paused) {}
-	void on_playback_dynamic_info_track(const file_info & p_info) {}
-	void on_playback_seek(double p_time) {}
-	void on_playback_pause(bool p_state) {}
-	void on_playback_stop(play_control::t_stop_reason p_reason) {}
-	void on_playback_dynamic_info(const file_info & p_info) {}
-	void on_playback_time(double p_time) {}
-	void on_volume_change(float p_new_val) {}
+    void on_playback_edited(metadb_handle_ptr p_track) {}
+    void on_playback_starting(play_control::t_track_command p_command, bool p_paused) {}
+    void on_playback_dynamic_info_track(const file_info & p_info) {}
+    void on_playback_seek(double p_time) {}
+    void on_playback_pause(bool p_state) {}
+    void on_playback_stop(play_control::t_stop_reason p_reason) {}
+    void on_playback_dynamic_info(const file_info & p_info) {}
+    void on_playback_time(double p_time) {}
+    void on_volume_change(float p_new_val) {}
 
-	unsigned int get_flags() {
-		return flag_on_playback_new_track;
-	}
+    unsigned int get_flags() {
+        return flag_on_playback_new_track;
+    }
 };
 
 void serverFunc() {
@@ -66,15 +66,15 @@ void serverFunc() {
             continue;
         }
 
-		try {
-			std::thread handlerThread(clientHandler, (void *)hPipe);
-			handlerThread.detach();
-		}
-		catch (...) {
-			DisconnectNamedPipe(hPipe);
-			CloseHandle(hPipe);
-			return;
-		}
+        try {
+            std::thread handlerThread(clientHandler, (void *)hPipe);
+            handlerThread.detach();
+        }
+        catch (...) {
+            DisconnectNamedPipe(hPipe);
+            CloseHandle(hPipe);
+            return;
+        }
     }
 }
 
@@ -110,15 +110,15 @@ void announceServerFunc() {
             continue;
         }
 
-		try {
-			std::thread handlerThread(announceHandler, hPipe);
-			handlerThread.detach();
-		}
-		catch (...) {
-			DisconnectNamedPipe(hPipe);
-			CloseHandle(hPipe);
-			return;
-		}
+        try {
+            std::thread handlerThread(announceHandler, hPipe);
+            handlerThread.detach();
+        }
+        catch (...) {
+            DisconnectNamedPipe(hPipe);
+            CloseHandle(hPipe);
+            return;
+        }
     }
 }
 

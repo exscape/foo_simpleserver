@@ -15,21 +15,21 @@ public:
         freopen("CONOUT$", "w", stderr);
 #endif
 
-		try {
-			std::thread serverThread(serverFunc);
-			serverThread.detach();
-		}
-		catch (...) {
+        try {
+            std::thread serverThread(serverFunc);
+            serverThread.detach();
+        }
+        catch (...) {
             popup_message::g_complain("foo_simpleserver: unable to create main server thread! Component will not work.");
         }
 
-		try {
-			std::thread announcerThread(announceServerFunc);
-			announcerThread.detach();
-		}
-		catch (...) {
-			popup_message::g_complain("foo_simpleserver: unable to create announcer thread! That part of the component will not work.");
-		}
+        try {
+            std::thread announcerThread(announceServerFunc);
+            announcerThread.detach();
+        }
+        catch (...) {
+            popup_message::g_complain("foo_simpleserver: unable to create announcer thread! That part of the component will not work.");
+        }
     }
     void on_quit() {
     }

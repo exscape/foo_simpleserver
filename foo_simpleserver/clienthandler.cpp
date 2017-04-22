@@ -37,10 +37,10 @@ void clientHandler(HANDLE hPipe) {
         void *libraryInfo = nullptr;
         DWORD libraryInfoLength = 0;
         if (getLibraryInfo(&libraryInfo, &libraryInfoLength)) {
-            WriteFile(hPipe, libraryInfo, libraryInfoLength, &bytes_written, nullptr);
+            WriteFile(hPipe, libraryInfo, libraryInfoLength + 8, &bytes_written, nullptr);
             HeapFree(GetProcessHeap(), 0, libraryInfo);
             replySent = true;
-            if (bytes_written != libraryInfoLength)
+            if (bytes_written != libraryInfoLength + 8)
                 fprintf(stderr, "foo_simpleserver: WriteFile failed! Asked to write %d bytes but %d bytes were written. GetLastError() == %d\n", libraryInfoLength, bytes_written, GetLastError());
             else
                 success = true;
@@ -67,11 +67,11 @@ void clientHandler(HANDLE hPipe) {
 
     if (!replySent) {
         if (success) {
-            WriteFile(hPipe, "\x06\x00\x00\x00OK", 6, &bytes_written, nullptr);
+            WriteFile(hPipe, "\x01\x00\x00\x00\x06\x00\x00\x00OK", 10, &bytes_written, nullptr);
         }
         else {
             fprintf(stderr, "foo_simpleserver: request failed: %s\n", requestType);
-            WriteFile(hPipe, "\x08\x00\x00\00FAIL", 8, &bytes_written, nullptr);
+            WriteFile(hPipe, "\x01\x00\x00\x00\x08\x00\x00\00FAIL", 12, &bytes_written, nullptr);
         }
     }
 

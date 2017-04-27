@@ -33,7 +33,7 @@ void clientHandler(HANDLE hPipe) {
     bool success = false;
     bool replySent = false;
 
-    if (strncmp(requestType, "get_library", 32) == 0) {
+    if (strncmp(requestType, "get_library", 28) == 0) {
         void *libraryInfo = nullptr;
         DWORD libraryInfoLength = 0;
         if (getLibraryInfo(&libraryInfo, &libraryInfoLength)) {
@@ -49,17 +49,52 @@ void clientHandler(HANDLE hPipe) {
             fprintf(stderr, "foo_simpleserver: getLibraryInfo failed, ignoring request\n");
         }
     }
-    else if (strncmp(requestType, "play:", 32) == 0 || strncmp(requestType, "enqueue:", 32) == 0 || strncmp(requestType, "add_top:", 32) == 0 || strncmp(requestType, "replace:", 32) == 0) {
+    else if (strncmp(requestType, "get_playlists", 28) == 0) {
+        void *playlists = nullptr;
+        DWORD playlistsLength = 0;
+        if (getAllPlaylists(&playlists, &playlistsLength)) {
+            WriteFile(hPipe, playlists, playlistsLength + 8, &bytes_written, nullptr);
+//			fprintf(stderr, "%d bytes written\n", bytes_written);
+            HeapFree(GetProcessHeap(), 0, playlists);
+            replySent = true;
+            if (bytes_written != playlistsLength + 8)
+                fprintf(stderr, "foo_simpleserver: WriteFile failed! Asked to write %d bytes but %d bytes were written. GetLastError() == %d\n", playlistsLength, bytes_written, GetLastError());
+            else
+                success = true;
+        }
+        else {
+            fprintf(stderr, "foo_simpleserver: getAllPlaylists failed, ignoring request\n");
+        }
+    }
+    else if (strncmp(requestType, "get_playlist_tracks:", 28) == 0) {
+		t_size playlist_id = *((t_size *)requestData);
+		void *tracks = nullptr;
+		DWORD tracksLength = 0;
+		if (getPlaylistTracks(playlist_id, &tracks, &tracksLength)) {
+            WriteFile(hPipe, tracks, tracksLength + 8, &bytes_written, nullptr);
+//			fprintf(stderr, "%d bytes written\n", bytes_written);
+            HeapFree(GetProcessHeap(), 0, tracks);
+            replySent = true;
+            if (bytes_written != tracksLength + 8)
+                fprintf(stderr, "foo_simpleserver: WriteFile failed! Asked to write %d bytes but %d bytes were written. GetLastError() == %d\n", tracksLength, bytes_written, GetLastError());
+            else
+                success = true;
+        }
+        else {
+            fprintf(stderr, "foo_simpleserver: getPlaylistTracks failed, ignoring request\n");
+        }
+    }
+    else if (strncmp(requestType, "play:", 28) == 0 || strncmp(requestType, "enqueue:", 28) == 0 || strncmp(requestType, "add_top:", 28) == 0 || strncmp(requestType, "replace:", 28) == 0) {
         struct url *urls = (struct url *)requestData;
         uint32_t count = requestDataLength / sizeof(struct url);
 
-        if (strncmp(requestType, "play:", 32) == 0)
+        if (strncmp(requestType, "play:", 28) == 0)
             play_tracks(urls, count);
-        else if (strncmp(requestType, "enqueue:", 32) == 0)
+        else if (strncmp(requestType, "enqueue:", 28) == 0)
             enqueue_tracks(urls, count);
-        else if (strncmp(requestType, "add_top:", 32) == 0)
+        else if (strncmp(requestType, "add_top:", 28) == 0)
             add_tracks_to_queue_top(urls, count);
-        else if (strncmp(requestType, "replace:", 32) == 0)
+        else if (strncmp(requestType, "replace:", 28) == 0)
             replace_queue_with_tracks(urls, count);
 
         success = true;
@@ -75,6 +110,7 @@ void clientHandler(HANDLE hPipe) {
         }
     }
 
+	FlushFileBuffers(hPipe); // Ensures the client has read all the data before we disconnect; solves a race condition triggered/noticed in only some clients
     HeapFree(GetProcessHeap(), 0, rawRequest);
     DisconnectNamedPipe(hPipe);
     CloseHandle(hPipe);

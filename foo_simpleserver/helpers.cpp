@@ -89,6 +89,95 @@ bool getLibraryInfo(void **libraryInfo, DWORD *libraryInfoLength) {
 
     return true;
 }
+bool getPlaylistTracks(t_size playlist_id, void **tracksInfo, DWORD *tracksInfoLength) {
+    // We can't access playlists from a thread, so we need to use a main_thread_callback via in_main_thread.
+    HANDLE hFinished = CreateEvent(NULL, TRUE, FALSE, NULL);
+    metadb_handle_list tracks;
+    in_main_thread([&] {
+		static_api_ptr_t<playlist_manager>()->playlist_get_all_items(playlist_id, tracks);
+        SetEvent(hFinished);
+    });
+    WaitForSingleObject(hFinished, INFINITE);
+
+    void *tracksData = HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, 16 + sizeof(struct trackinfo) * (tracks.get_count()));
+    if (!tracksData)
+        return false;
+
+    *(uint32_t *)tracksData = 1; // Data format version
+    *(uint32_t *)((uint32_t *)tracksData + 1) = sizeof(struct trackinfo) * tracks.get_count(); // buffer size required to hold all data
+    struct trackinfo *info = (struct trackinfo *)((char *)tracksData + 2 * sizeof(uint32_t));
+
+    for (size_t trackid = 0; trackid < tracks.get_count(); trackid++, info++) {
+        if (!get_meta_helper(tracks.get_item(trackid), info->artist, "artist", 96))
+            get_meta_helper(tracks.get_item(trackid), info->artist, "album artist", 96);
+        get_meta_helper(tracks.get_item(trackid), info->album, "album", 96);
+        get_meta_helper(tracks.get_item(trackid), info->title, "title", 96);
+        get_meta_helper(tracks.get_item(trackid), info->path, "path", 260);
+        get_meta_helper(tracks.get_item(trackid), info->genre, "genre", 64);
+
+        // atoi() is usually frowned upon as it returns 0 for invalid/non-numeric input, but
+        // that's actually the behaviour I want here.
+        char tmp[16] = { 0 };
+        get_meta_helper(tracks.get_item(trackid), tmp, "discnumber", 16);
+        info->discnumber = atoi(tmp);
+        get_meta_helper(tracks.get_item(trackid), tmp, "tracknumber", 16);
+        info->tracknumber = atoi(tmp);
+        get_meta_helper(tracks.get_item(trackid), tmp, "date", 16);
+        if (strlen(tmp) == 4 && (tmp[0] == '1' || tmp[0] == '2'))
+            info->year = atoi(tmp);
+        else
+            info->year = 0;
+    }
+
+    *tracksInfo = tracksData;
+    *tracksInfoLength = sizeof(struct trackinfo) * tracks.get_count();
+
+    return true;
+}
+
+// Fetches information about the entire foobar library (every track's artist, title, path and so on)
+bool getAllPlaylists(void **playlists, DWORD *playlistsLength) {
+	// We can't access playlists from a thread, so we need to use a main_thread_callback via in_main_thread.
+	HANDLE hFinished = CreateEvent(NULL, TRUE, FALSE, NULL);
+	t_size numPlaylists = 0;
+	in_main_thread([&] {
+		numPlaylists = static_api_ptr_t<playlist_manager>()->get_playlist_count();
+		SetEvent(hFinished);
+	});
+	WaitForSingleObject(hFinished, INFINITE);
+
+	if (numPlaylists > 1000) // Surely something is wrong here, e.g. pfc_infinite was returned
+		return false;
+
+	void *playlistData = HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, 16 + sizeof(struct playlistinfo) * numPlaylists);
+	if (!playlistData)
+		return false;
+
+	*(uint32_t *)playlistData = 1; // Data format version
+	*(uint32_t *)((uint32_t *)playlistData + 1) = sizeof(struct playlistinfo) * numPlaylists; // buffer size required to hold all data
+	struct playlistinfo *info = (struct playlistinfo *)((char *)playlistData + 2 * sizeof(uint32_t));
+
+
+	hFinished = CreateEvent(NULL, TRUE, FALSE, NULL);
+	in_main_thread([&] {
+		for (t_size playlistid = 0; playlistid < numPlaylists; playlistid++, info++) {
+			pfc::string8 outstr;
+			static_api_ptr_t<playlist_manager>()->playlist_get_name(playlistid, outstr);
+			utf8cpy(info->name, outstr.c_str(), 256);
+
+			info->num_tracks = static_api_ptr_t<playlist_manager>()->playlist_get_item_count(playlistid);
+			info->id = playlistid;
+		}
+		SetEvent(hFinished);
+	});
+	WaitForSingleObject(hFinished, INFINITE);
+
+	*playlists = playlistData;
+	*playlistsLength = sizeof(struct playlistinfo) * numPlaylists;
+
+    return true;
+}
+
 // Must NOT be called from the main thread!
 // This function is, unfortunately, rather complex. It's not *too* difficult, though -- this descriptions actually looks worse
 // than the code itself, once you grasp it.

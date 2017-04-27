@@ -13,6 +13,8 @@
 char* utf8cpy(char* dst, const char* src, size_t sizeDest);
 bool get_meta_helper(service_ptr_t<metadb_handle> item, char *libraryData, const char *metaitem, size_t BUFSIZE);
 bool getLibraryInfo(void **libraryInfo, DWORD *libraryInfoLength);
+bool getAllPlaylists(void **playlists, DWORD *playlistsLength);
+bool getPlaylistTracks(t_size playlist_id, void **tracksInfo, DWORD *tracksInfoLength);
 metadb_handle_list get_handles_from_urls(struct url *urls_in, size_t count);
 
 template <typename F>
@@ -61,4 +63,12 @@ struct trackinfo {
     uint16_t discnumber;
     uint32_t year; // Might as well make it 32-bit for alignment
     char genre[64];
+};
+
+// Version 1 struct
+// Used by the clientHandler
+struct playlistinfo {
+	uint32_t id;
+	uint32_t num_tracks;
+	char name[256];
 };

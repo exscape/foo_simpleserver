@@ -56,6 +56,7 @@ DWORD doAnnounce(HANDLE hPipe) {
         // Other errors are assumed to be temporary and thus ignored.
     }
     else {
+		FlushFileBuffers(hPipe);
         return ERROR_SUCCESS;
     }
 }

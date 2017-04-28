@@ -4,7 +4,9 @@
 
 #pragma once
 
+#include <string>
 #include <mutex>
+#include <vector>
 #include <condition_variable>
 #include <windows.h>
 #include "../SDK/foobar2000/SDK/foobar2000.h"
@@ -12,9 +14,9 @@
 // Declared in helpers.cpp
 char* utf8cpy(char* dst, const char* src, size_t sizeDest);
 bool get_meta_helper(service_ptr_t<metadb_handle> item, char *libraryData, const char *metaitem, size_t BUFSIZE);
-bool getLibraryInfo(void **libraryInfo, DWORD *libraryInfoLength);
-bool getAllPlaylists(void **playlists, DWORD *playlistsLength);
-bool getPlaylistTracks(t_size playlist_id, void **tracksInfo, DWORD *tracksInfoLength);
+std::vector<std::uint8_t> getLibraryInfo();
+std::vector<std::uint8_t> getAllPlaylists();
+std::vector<std::uint8_t> getPlaylistTracks(t_size playlist_id);
 metadb_handle_list get_handles_from_urls(struct url *urls_in, size_t count);
 
 template <typename F>
@@ -50,25 +52,4 @@ struct songInfo {
 	char artist[512];
 	char title[512];
 	char path[512];
-};
-
-// Version 1 struct
-// Used by the clientHandler
-struct trackinfo {
-    char artist[96];
-    char album[96];
-    char title[96];
-    char path[260];
-    uint16_t tracknumber;
-    uint16_t discnumber;
-    uint32_t year; // Might as well make it 32-bit for alignment
-    char genre[64];
-};
-
-// Version 1 struct
-// Used by the clientHandler
-struct playlistinfo {
-	uint32_t id;
-	uint32_t num_tracks;
-	char name[256];
 };

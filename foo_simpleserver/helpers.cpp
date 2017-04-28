@@ -1,5 +1,8 @@
 #include "stdafx.h"
+#include "json.hpp"
 #include <future>
+
+using json = nlohmann::json;
 
 // Copy a UTF-8 string to a size-limited buffer, ensuring both null termination and that no
 // "half" UTF-8 characters are copied (in case of multi-byte characters).
@@ -43,8 +46,22 @@ bool get_meta_helper(service_ptr_t<metadb_handle> item, char *libraryData, const
         return false;
 }
 
+std::string get_meta_string(service_ptr_t<metadb_handle> item, const char *metaitem) {
+    file_info_impl info;
+    item->get_info(info);
+
+    const char *p = nullptr;
+    if (!strcmp(metaitem, "path"))
+        p = item->get_location().get_path();
+    else
+        p = info.meta_get(metaitem, 0);
+
+    return std::string(p == nullptr ? "" : p);
+}
+
 // Fetches information about the entire foobar library (every track's artist, title, path and so on)
-bool getLibraryInfo(void **libraryInfo, DWORD *libraryInfoLength) {
+// Data is returned in CBOR format.
+std::vector<std::uint8_t> getLibraryInfo() {
     // We can't access the library from a thread, so we need to use a main_thread_callback via in_main_thread.
     HANDLE hFinished = CreateEvent(NULL, TRUE, FALSE, NULL);
     metadb_handle_list library;
@@ -54,42 +71,37 @@ bool getLibraryInfo(void **libraryInfo, DWORD *libraryInfoLength) {
     });
     WaitForSingleObject(hFinished, INFINITE);
 
-    void *libraryData = HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, 16 + sizeof(struct trackinfo) * (library.get_count()));
-    if (!libraryData)
-        return false;
+    json j;
+    for (size_t trackid = 0; trackid < library.get_count(); trackid++) {
+        auto artist = get_meta_string(library.get_item(trackid), "artist");
+        if (artist.size() < 1)
+            artist = get_meta_string(library.get_item(trackid), "album artist");
 
-    *(uint32_t *)libraryData = 1; // Data format version
-    *(uint32_t *)((uint32_t *)libraryData + 1) = sizeof(struct trackinfo) * library.get_count(); // buffer size required to hold all data
-    struct trackinfo *info = (struct trackinfo *)((char *)libraryData + 2 * sizeof(uint32_t));
+        auto discnumber = atoi(get_meta_string(library.get_item(trackid), "discnumber").c_str());
+        auto tracknumber = atoi(get_meta_string(library.get_item(trackid), "tracknumber").c_str());
 
-    for (size_t trackid = 0; trackid < library.get_count(); trackid++, info++) {
-        if (!get_meta_helper(library.get_item(trackid), info->artist, "artist", 96))
-            get_meta_helper(library.get_item(trackid), info->artist, "album artist", 96);
-        get_meta_helper(library.get_item(trackid), info->album, "album", 96);
-        get_meta_helper(library.get_item(trackid), info->title, "title", 96);
-        get_meta_helper(library.get_item(trackid), info->path, "path", 260);
-        get_meta_helper(library.get_item(trackid), info->genre, "genre", 64);
+        // TODO: support dates such as 2017-04-28 (extract year)
+        auto tmp = get_meta_string(library.get_item(trackid), "date");
+        int year = 0;
+        if (tmp.length() == 4 && (tmp[0] == '1' || tmp[0] == '2'))
+            year = atoi(tmp.c_str());
 
-        // atoi() is usually frowned upon as it returns 0 for invalid/non-numeric input, but
-        // that's actually the behaviour I want here.
-        char tmp[16] = { 0 };
-        get_meta_helper(library.get_item(trackid), tmp, "discnumber", 16);
-        info->discnumber = atoi(tmp);
-        get_meta_helper(library.get_item(trackid), tmp, "tracknumber", 16);
-        info->tracknumber = atoi(tmp);
-        get_meta_helper(library.get_item(trackid), tmp, "date", 16);
-        if (strlen(tmp) == 4 && (tmp[0] == '1' || tmp[0] == '2'))
-            info->year = atoi(tmp);
-        else
-            info->year = 0;
+        j.push_back({
+            { "artist", artist },
+            { "album", get_meta_string(library.get_item(trackid), "album") },
+            { "title", get_meta_string(library.get_item(trackid), "title") },
+            { "path", get_meta_string(library.get_item(trackid), "path") },
+            { "genre", get_meta_string(library.get_item(trackid), "genre") },
+            { "discnumber", discnumber },
+            { "tracknumber", tracknumber },
+            { "year", year }
+        });
     }
 
-    *libraryInfo = libraryData;
-    *libraryInfoLength = sizeof(struct trackinfo) * library.get_count();
-
-    return true;
+    return json::to_cbor(j);
 }
-bool getPlaylistTracks(t_size playlist_id, void **tracksInfo, DWORD *tracksInfoLength) {
+
+std::vector<std::uint8_t> getPlaylistTracks(t_size playlist_id) {
     // We can't access playlists from a thread, so we need to use a main_thread_callback via in_main_thread.
     HANDLE hFinished = CreateEvent(NULL, TRUE, FALSE, NULL);
     metadb_handle_list tracks;
@@ -99,44 +111,38 @@ bool getPlaylistTracks(t_size playlist_id, void **tracksInfo, DWORD *tracksInfoL
     });
     WaitForSingleObject(hFinished, INFINITE);
 
-    void *tracksData = HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, 16 + sizeof(struct trackinfo) * (tracks.get_count()));
-    if (!tracksData)
-        return false;
+    json j;
+    for (size_t trackid = 0; trackid < tracks.get_count(); trackid++) {
+        auto artist = get_meta_string(tracks.get_item(trackid), "artist");
+        if (artist.size() < 1)
+            artist = get_meta_string(tracks.get_item(trackid), "album artist");
 
-    *(uint32_t *)tracksData = 1; // Data format version
-    *(uint32_t *)((uint32_t *)tracksData + 1) = sizeof(struct trackinfo) * tracks.get_count(); // buffer size required to hold all data
-    struct trackinfo *info = (struct trackinfo *)((char *)tracksData + 2 * sizeof(uint32_t));
+        auto discnumber = atoi(get_meta_string(tracks.get_item(trackid), "discnumber").c_str());
+        auto tracknumber = atoi(get_meta_string(tracks.get_item(trackid), "tracknumber").c_str());
 
-    for (size_t trackid = 0; trackid < tracks.get_count(); trackid++, info++) {
-        if (!get_meta_helper(tracks.get_item(trackid), info->artist, "artist", 96))
-            get_meta_helper(tracks.get_item(trackid), info->artist, "album artist", 96);
-        get_meta_helper(tracks.get_item(trackid), info->album, "album", 96);
-        get_meta_helper(tracks.get_item(trackid), info->title, "title", 96);
-        get_meta_helper(tracks.get_item(trackid), info->path, "path", 260);
-        get_meta_helper(tracks.get_item(trackid), info->genre, "genre", 64);
+        // TODO: support dates such as 2017-04-28 (extract year)
+        auto tmp = get_meta_string(tracks.get_item(trackid), "date");
+        int year = 0;
+        if (tmp.length() == 4 && (tmp[0] == '1' || tmp[0] == '2'))
+            year = atoi(tmp.c_str());
 
-        // atoi() is usually frowned upon as it returns 0 for invalid/non-numeric input, but
-        // that's actually the behaviour I want here.
-        char tmp[16] = { 0 };
-        get_meta_helper(tracks.get_item(trackid), tmp, "discnumber", 16);
-        info->discnumber = atoi(tmp);
-        get_meta_helper(tracks.get_item(trackid), tmp, "tracknumber", 16);
-        info->tracknumber = atoi(tmp);
-        get_meta_helper(tracks.get_item(trackid), tmp, "date", 16);
-        if (strlen(tmp) == 4 && (tmp[0] == '1' || tmp[0] == '2'))
-            info->year = atoi(tmp);
-        else
-            info->year = 0;
+        j.push_back({
+            { "artist", artist },
+            { "album", get_meta_string(tracks.get_item(trackid), "album") },
+            { "title", get_meta_string(tracks.get_item(trackid), "title") },
+            { "path", get_meta_string(tracks.get_item(trackid), "path") },
+            { "genre", get_meta_string(tracks.get_item(trackid), "genre") },
+            { "discnumber", discnumber },
+            { "tracknumber", tracknumber },
+            { "year", year }
+        });
     }
 
-    *tracksInfo = tracksData;
-    *tracksInfoLength = sizeof(struct trackinfo) * tracks.get_count();
-
-    return true;
+    return json::to_cbor(j);
 }
 
 // Fetches information about the entire foobar library (every track's artist, title, path and so on)
-bool getAllPlaylists(void **playlists, DWORD *playlistsLength) {
+std::vector<std::uint8_t> getAllPlaylists() {
 	// We can't access playlists from a thread, so we need to use a main_thread_callback via in_main_thread.
 	HANDLE hFinished = CreateEvent(NULL, TRUE, FALSE, NULL);
 	t_size numPlaylists = 0;
@@ -146,40 +152,32 @@ bool getAllPlaylists(void **playlists, DWORD *playlistsLength) {
 	});
 	WaitForSingleObject(hFinished, INFINITE);
 
-	if (numPlaylists > 1000) // Surely something is wrong here, e.g. pfc_infinite was returned
-		return false;
+    json j;
 
-	void *playlistData = HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, 16 + sizeof(struct playlistinfo) * numPlaylists);
-	if (!playlistData)
-		return false;
-
-	*(uint32_t *)playlistData = 1; // Data format version
-	*(uint32_t *)((uint32_t *)playlistData + 1) = sizeof(struct playlistinfo) * numPlaylists; // buffer size required to hold all data
-	struct playlistinfo *info = (struct playlistinfo *)((char *)playlistData + 2 * sizeof(uint32_t));
-
+    if (numPlaylists > 1000) // Surely something is wrong here, e.g. pfc_infinite was returned
+        return json::to_cbor(j);
 
 	hFinished = CreateEvent(NULL, TRUE, FALSE, NULL);
 	in_main_thread([&] {
-		for (t_size playlistid = 0; playlistid < numPlaylists; playlistid++, info++) {
+		for (t_size playlistid = 0; playlistid < numPlaylists; playlistid++) {
 			pfc::string8 outstr;
 			static_api_ptr_t<playlist_manager>()->playlist_get_name(playlistid, outstr);
-			utf8cpy(info->name, outstr.c_str(), 256);
 
-			info->num_tracks = static_api_ptr_t<playlist_manager>()->playlist_get_item_count(playlistid);
-			info->id = playlistid;
+            j.push_back({
+                { "name", std::string(outstr.c_str()) },
+                { "num_tracks", static_api_ptr_t<playlist_manager>()->playlist_get_item_count(playlistid) },
+                { "id", playlistid }
+            });
 		}
 		SetEvent(hFinished);
 	});
 	WaitForSingleObject(hFinished, INFINITE);
 
-	*playlists = playlistData;
-	*playlistsLength = sizeof(struct playlistinfo) * numPlaylists;
-
-    return true;
+    return json::to_cbor(j);
 }
 
 // Must NOT be called from the main thread!
-// This function is, unfortunately, rather complex. It's not *too* difficult, though -- this descriptions actually looks worse
+// This function is, unfortunately, rather complex. It's not *too* difficult, though -- this description actually looks worse
 // than the code itself, once you grasp it.
 // I came up with a better solution, but couldn't get it compile due to internal compiler errors and compiler stack overflows. :(
 //

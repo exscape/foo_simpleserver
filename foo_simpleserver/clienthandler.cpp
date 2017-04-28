@@ -1,7 +1,9 @@
 #include "stdafx.h"
 #include "actions.h"
+#include <vector>
 
 #define REQUEST_BUFSIZE 65536 // a few times more than enough to allow queueing the foobar hard limit of 64 tracks
+
 
 void clientHandler(HANDLE hPipe) {
     DWORD bytes_read = 0;
@@ -34,14 +36,13 @@ void clientHandler(HANDLE hPipe) {
     bool replySent = false;
 
     if (strncmp(requestType, "get_library", 28) == 0) {
-        void *libraryInfo = nullptr;
-        DWORD libraryInfoLength = 0;
-        if (getLibraryInfo(&libraryInfo, &libraryInfoLength)) {
-            WriteFile(hPipe, libraryInfo, libraryInfoLength + 8, &bytes_written, nullptr);
-            HeapFree(GetProcessHeap(), 0, libraryInfo);
+        auto data = getLibraryInfo();
+        auto size = data.size();
+        if (size > 0) {
+            WriteFile(hPipe, data.data(), size, &bytes_written, nullptr);
             replySent = true;
-            if (bytes_written != libraryInfoLength + 8)
-                fprintf(stderr, "foo_simpleserver: WriteFile failed! Asked to write %d bytes but %d bytes were written. GetLastError() == %d\n", libraryInfoLength, bytes_written, GetLastError());
+            if (bytes_written != size)
+                fprintf(stderr, "foo_simpleserver: WriteFile failed! Asked to write %d bytes but %d bytes were written. GetLastError() == %d\n", size, bytes_written, GetLastError());
             else
                 success = true;
         }
@@ -50,15 +51,14 @@ void clientHandler(HANDLE hPipe) {
         }
     }
     else if (strncmp(requestType, "get_playlists", 28) == 0) {
-        void *playlists = nullptr;
-        DWORD playlistsLength = 0;
-        if (getAllPlaylists(&playlists, &playlistsLength)) {
-            WriteFile(hPipe, playlists, playlistsLength + 8, &bytes_written, nullptr);
+        auto data = getAllPlaylists();
+        auto size = data.size();
+        if (size > 0) {
+            WriteFile(hPipe, data.data(), size, &bytes_written, nullptr);
 //			fprintf(stderr, "%d bytes written\n", bytes_written);
-            HeapFree(GetProcessHeap(), 0, playlists);
             replySent = true;
-            if (bytes_written != playlistsLength + 8)
-                fprintf(stderr, "foo_simpleserver: WriteFile failed! Asked to write %d bytes but %d bytes were written. GetLastError() == %d\n", playlistsLength, bytes_written, GetLastError());
+            if (bytes_written != size)
+                fprintf(stderr, "foo_simpleserver: WriteFile failed! Asked to write %d bytes but %d bytes were written. GetLastError() == %d\n", size, bytes_written, GetLastError());
             else
                 success = true;
         }
@@ -68,15 +68,14 @@ void clientHandler(HANDLE hPipe) {
     }
     else if (strncmp(requestType, "get_playlist_tracks:", 28) == 0) {
 		t_size playlist_id = *((t_size *)requestData);
-		void *tracks = nullptr;
-		DWORD tracksLength = 0;
-		if (getPlaylistTracks(playlist_id, &tracks, &tracksLength)) {
-            WriteFile(hPipe, tracks, tracksLength + 8, &bytes_written, nullptr);
+        auto data = getPlaylistTracks(playlist_id);
+        auto size = data.size();
+        if (size > 0) {
+            WriteFile(hPipe, data.data(), size, &bytes_written, nullptr);
 //			fprintf(stderr, "%d bytes written\n", bytes_written);
-            HeapFree(GetProcessHeap(), 0, tracks);
             replySent = true;
-            if (bytes_written != tracksLength + 8)
-                fprintf(stderr, "foo_simpleserver: WriteFile failed! Asked to write %d bytes but %d bytes were written. GetLastError() == %d\n", tracksLength, bytes_written, GetLastError());
+            if (bytes_written != size)
+                fprintf(stderr, "foo_simpleserver: WriteFile failed! Asked to write %d bytes but %d bytes were written. GetLastError() == %d\n", size, bytes_written, GetLastError());
             else
                 success = true;
         }

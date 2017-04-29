@@ -13,7 +13,8 @@ protected:
 public:
     ClientHandler(HANDLE pipe) : hPipe(pipe) {}
     void go();
-    void send_response(json request, json response);
+    void send_error_response(const json &request, const std::string &error, const std::string &description);
+    void send_response(const json &request, const json &response);
     ~ClientHandler();
 };
 

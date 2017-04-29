@@ -46,7 +46,7 @@ DWORD doAnnounce(HANDLE hPipe) {
 
     if (!success) {
         DWORD err = GetLastError();
-        std::cout << "doAnnounce failed to write! Last error is" << err;
+        std::cerr << "doAnnounce failed to write! Last error was " << err;
         if (err == ERROR_BROKEN_PIPE || err == ERROR_NO_DATA || ERROR_PIPE_NOT_CONNECTED) {
             // The other end is disconnected (ERROR_NO_DATA is the only error I've actually observed in practice, on Windows 10),
             // so we can shut down this server thread.

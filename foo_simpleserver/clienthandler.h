@@ -1,5 +1,5 @@
 #pragma once
-#include <Windows.h>
+#include <windows.h>
 #include "json.hpp"
 using std::uint8_t;
 using json = nlohmann::json;
@@ -13,8 +13,7 @@ protected:
 public:
     ClientHandler(HANDLE pipe) : hPipe(pipe) {}
     void go();
-    void send_error_response(json request, json response);
-    void send_response(json request, std::vector<std::uint8_t> data);
+    void send_response(json request, json response);
     ~ClientHandler();
 };
 

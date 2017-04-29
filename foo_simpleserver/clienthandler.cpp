@@ -10,18 +10,11 @@ using std::uint8_t;
 
 #define REQUEST_BUFSIZE 65536 // a few times more than enough to allow queueing the foobar hard limit of 64 tracks
 
-void ClientHandler::send_error_response(json request, json response)
-{
+void ClientHandler::send_response(json request, json response) {
     if (this->hPipe == nullptr || this->hPipe == INVALID_HANDLE_VALUE)
         return;
 
-    send_response(request, json::to_cbor(response));
-}
-
-void ClientHandler::send_response(json request, std::vector<std::uint8_t> data) {
-    if (this->hPipe == nullptr || this->hPipe == INVALID_HANDLE_VALUE)
-        return;
-
+    auto data = json::to_cbor(response);
     auto size = data.size();
     if (size == 0)
         return;
@@ -31,12 +24,8 @@ void ClientHandler::send_response(json request, std::vector<std::uint8_t> data) 
     if (bytes_written != size) {
         std::ostringstream ss;
         ss << "foo_simpleserver: WriteFile failed for request \"";
-        try {
-            ss << request["request_type"];
-        }
-        catch (...) {
-            ss << "<unknown>";
-        }
+        try { ss << request["request_type"]; }
+        catch (...) { ss << "<unknown>"; }
         ss << "\"." << std::endl;
         ss << "Asked to write " << size << " bytes, but " << bytes_written << " were written. GetLastError() = " << GetLastError() << std::endl;
         fprintf(stderr, "%s\n", ss.str().c_str());
@@ -45,9 +34,8 @@ void ClientHandler::send_response(json request, std::vector<std::uint8_t> data) 
 
 void ClientHandler::go() {
     rawRequest = (uint8_t *)HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, REQUEST_BUFSIZE);
-    if (!rawRequest) {
+    if (!rawRequest)
         return;
-    }
 
     // Read the request
     if (!ReadFile(hPipe, rawRequest, REQUEST_BUFSIZE, &bytes_read, nullptr)) {
@@ -55,7 +43,7 @@ void ClientHandler::go() {
             fprintf(stderr, "foo_simpleserver: request too big, ignoring!\n");
             std::ostringstream ss;
             ss << "the request was bigger than the server's buffer size of " << REQUEST_BUFSIZE << " bytes.";
-            send_error_response({}, {
+            send_response({}, {
                 { "error", "request_too_big" },
                 { "error_description", ss.str() }
             });
@@ -64,7 +52,7 @@ void ClientHandler::go() {
             fprintf(stderr, "foo_simpleserver: ReadFile failed, ignoring request! GetLastError() == %d\n", GetLastError());
             std::ostringstream ss;
             ss << "unhandled error. Windows error code " << GetLastError() << ".";
-            send_error_response({}, {
+            send_response({}, {
                 { "error", "read_error" },
                 { "error_description", ss.str() }
             });
@@ -73,17 +61,13 @@ void ClientHandler::go() {
         return;
     }
 
-    DWORD bytes_written = 0;
-    bool success = false;
-    bool replySent = false;
-
     std::vector<uint8_t> request_cbor(rawRequest, rawRequest + bytes_read);
     json request;
     try {
         request = json::from_cbor(request_cbor);
     }
     catch (...) {
-        send_error_response({}, {
+        send_response({}, {
             { "error", "deserialization_error" },
             { "error_description", "from_cbor threw an exception; invalid data received" }
         });
@@ -91,8 +75,7 @@ void ClientHandler::go() {
     }
 
     if (request.find("request_type") == request.end()) {
-        // Request does not contain the "request_type" key, which is required.
-        send_error_response({}, {
+        send_response({}, {
             { "error", "invalid_request" },
             { "error_description", "request does not contain \"request_type\" key, which is required" }
         });
@@ -110,29 +93,17 @@ void ClientHandler::go() {
     }
     else if (request["request_type"] == "get_playlist_tracks:") {
         if (request.find("playlist_id") == request.end()) {
-            send_error_response(request, {
+            send_response(request, {
                 { "error", "missing_parameter" },
                 { "error_description", "request type \"get_playlist_tracks:\" without required parameter playlist_id" }
             });
+
             return;
         }
-        t_size playlist_id = (t_size)request["playlist_id"];
-        auto data = getPlaylistTracks(playlist_id);
-        auto size = data.size();
-        if (size > 0) {
-            WriteFile(hPipe, data.data(), size, &bytes_written, nullptr);
-            //			fprintf(stderr, "%d bytes written\n", bytes_written);
-            replySent = true;
-            if (bytes_written != size)
-                fprintf(stderr, "foo_simpleserver: WriteFile failed! Asked to write %d bytes but %d bytes were written. GetLastError() == %d\n", size, bytes_written, GetLastError());
-            else
-                success = true;
-        }
-        else {
-            fprintf(stderr, "foo_simpleserver: getPlaylistTracks failed, ignoring request\n");
-        }
-    }
 
+        t_size playlist_id = (t_size)request["playlist_id"];
+        send_response(request, getPlaylistTracks(playlist_id));
+    }
 
     //
     // This block handles requests that don't have any response data (except an OK/error status) associated with them:
@@ -162,11 +133,14 @@ void ClientHandler::go() {
         else if (request["request_type"] == "replace:")
             replace_queue_with_tracks(urls, count);
 
-        success = true;
+        send_response(request, {
+            { "ok", "request completed successfully" }
+        });
+
     }
     else {
         // Catch-all: unknown request type!
-        send_error_response(request, {
+        send_response(request, {
             { "error", "unknown_request" },
             { "error_description", "request_type value not recognized" }
         });
@@ -181,8 +155,6 @@ ClientHandler::~ClientHandler()
         CloseHandle(hPipe);
     }
 
-    if (rawRequest) {
+    if (rawRequest)
         HeapFree(GetProcessHeap(), 0, rawRequest);
-        rawRequest = nullptr;
-    }
 }

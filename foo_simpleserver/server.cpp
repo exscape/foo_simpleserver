@@ -15,7 +15,6 @@ class play_callback_handler : public play_callback_static
 {
     void on_playback_new_track(metadb_handle_ptr p_track) {
         // Wake all waiting threads
-        int oldCount = announceCount;
         {
             std::unique_lock<std::mutex> lock(mutex);
             announceCount++;

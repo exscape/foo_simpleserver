@@ -61,7 +61,7 @@ std::string get_meta_string(service_ptr_t<metadb_handle> item, const char *metai
 
 // Fetches information about the entire foobar library (every track's artist, title, path and so on)
 // Data is returned in CBOR format.
-std::vector<std::uint8_t> getLibraryInfo() {
+json getLibraryInfo() {
     // We can't access the library from a thread, so we need to use a main_thread_callback via in_main_thread.
     HANDLE hFinished = CreateEvent(NULL, TRUE, FALSE, NULL);
     metadb_handle_list library;
@@ -71,7 +71,7 @@ std::vector<std::uint8_t> getLibraryInfo() {
     });
     WaitForSingleObject(hFinished, INFINITE);
 
-    json j;
+    json response;
     for (size_t trackid = 0; trackid < library.get_count(); trackid++) {
         auto artist = get_meta_string(library.get_item(trackid), "artist");
         if (artist.size() < 1)
@@ -86,7 +86,7 @@ std::vector<std::uint8_t> getLibraryInfo() {
         if (tmp.length() == 4 && (tmp[0] == '1' || tmp[0] == '2'))
             year = atoi(tmp.c_str());
 
-        j.push_back({
+        response.push_back({
             { "artist", artist },
             { "album", get_meta_string(library.get_item(trackid), "album") },
             { "title", get_meta_string(library.get_item(trackid), "title") },
@@ -98,10 +98,10 @@ std::vector<std::uint8_t> getLibraryInfo() {
         });
     }
 
-    return json::to_cbor(j);
+    return response;
 }
 
-std::vector<std::uint8_t> getPlaylistTracks(t_size playlist_id) {
+json getPlaylistTracks(t_size playlist_id) {
     // We can't access playlists from a thread, so we need to use a main_thread_callback via in_main_thread.
     HANDLE hFinished = CreateEvent(NULL, TRUE, FALSE, NULL);
     metadb_handle_list tracks;
@@ -111,7 +111,7 @@ std::vector<std::uint8_t> getPlaylistTracks(t_size playlist_id) {
     });
     WaitForSingleObject(hFinished, INFINITE);
 
-    json j;
+    json response;
     for (size_t trackid = 0; trackid < tracks.get_count(); trackid++) {
         auto artist = get_meta_string(tracks.get_item(trackid), "artist");
         if (artist.size() < 1)
@@ -126,7 +126,7 @@ std::vector<std::uint8_t> getPlaylistTracks(t_size playlist_id) {
         if (tmp.length() == 4 && (tmp[0] == '1' || tmp[0] == '2'))
             year = atoi(tmp.c_str());
 
-        j.push_back({
+        response.push_back({
             { "artist", artist },
             { "album", get_meta_string(tracks.get_item(trackid), "album") },
             { "title", get_meta_string(tracks.get_item(trackid), "title") },
@@ -138,11 +138,11 @@ std::vector<std::uint8_t> getPlaylistTracks(t_size playlist_id) {
         });
     }
 
-    return json::to_cbor(j);
+    return response;
 }
 
 // Fetches information about the entire foobar library (every track's artist, title, path and so on)
-std::vector<std::uint8_t> getAllPlaylists() {
+json getAllPlaylists() {
 	// We can't access playlists from a thread, so we need to use a main_thread_callback via in_main_thread.
 	HANDLE hFinished = CreateEvent(NULL, TRUE, FALSE, NULL);
 	t_size numPlaylists = 0;
@@ -152,10 +152,16 @@ std::vector<std::uint8_t> getAllPlaylists() {
 	});
 	WaitForSingleObject(hFinished, INFINITE);
 
-    json j;
 
-    if (numPlaylists > 1000) // Surely something is wrong here, e.g. pfc_infinite was returned
-        return json::to_cbor(j);
+    if (numPlaylists > 1000) {
+        // Surely something is wrong here, e.g. pfc_infinite was returned
+        return {
+            { "error", "foobar_error" },
+            { "error_description", "unable to read playlists from foobar" }
+        };
+    }
+
+    json response;
 
 	hFinished = CreateEvent(NULL, TRUE, FALSE, NULL);
 	in_main_thread([&] {
@@ -163,7 +169,7 @@ std::vector<std::uint8_t> getAllPlaylists() {
 			pfc::string8 outstr;
 			static_api_ptr_t<playlist_manager>()->playlist_get_name(playlistid, outstr);
 
-            j.push_back({
+            response.push_back({
                 { "name", std::string(outstr.c_str()) },
                 { "num_tracks", static_api_ptr_t<playlist_manager>()->playlist_get_item_count(playlistid) },
                 { "id", playlistid }
@@ -173,7 +179,7 @@ std::vector<std::uint8_t> getAllPlaylists() {
 	});
 	WaitForSingleObject(hFinished, INFINITE);
 
-    return json::to_cbor(j);
+    return response;
 }
 
 // Must NOT be called from the main thread!

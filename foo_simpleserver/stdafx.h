@@ -10,13 +10,14 @@
 #include <condition_variable>
 #include <windows.h>
 #include "../SDK/foobar2000/SDK/foobar2000.h"
+#include "json.hpp"
 
 // Declared in helpers.cpp
 char* utf8cpy(char* dst, const char* src, size_t sizeDest);
 bool get_meta_helper(service_ptr_t<metadb_handle> item, char *libraryData, const char *metaitem, size_t BUFSIZE);
-std::vector<std::uint8_t> getLibraryInfo();
-std::vector<std::uint8_t> getAllPlaylists();
-std::vector<std::uint8_t> getPlaylistTracks(t_size playlist_id);
+nlohmann::json getLibraryInfo();
+nlohmann::json getAllPlaylists();
+nlohmann::json getPlaylistTracks(t_size playlist_id);
 metadb_handle_list get_handles_from_urls(struct url *urls_in, size_t count);
 
 template <typename F>

@@ -1,6 +1,7 @@
-#include "stdafx.h"
 #include <iostream>
 #include <thread>
+#include "stdafx.h"
+#include "clienthandler.h"
 
 void clientHandler(HANDLE);
 void announceHandler(HANDLE);
@@ -67,7 +68,11 @@ void serverFunc() {
         }
 
         try {
-            std::thread handlerThread(clientHandler, (void *)hPipe);
+//            std::thread handlerThread(clientHandler, (void *)hPipe);
+            std::thread handlerThread([=]() {
+                ClientHandler handler(hPipe);
+                handler.go();
+            });
             handlerThread.detach();
         }
         catch (...) {

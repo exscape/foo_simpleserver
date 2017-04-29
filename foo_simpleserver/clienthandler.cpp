@@ -10,12 +10,18 @@ using std::uint8_t;
 
 #define REQUEST_BUFSIZE 65536 // a few times more than enough to allow queueing the foobar hard limit of 64 tracks
 
-void ClientHandler::send_error_reply(json j)
+void ClientHandler::send_error_response(json request, json response)
 {
     if (this->hPipe == nullptr || this->hPipe == INVALID_HANDLE_VALUE)
         return;
 
-    auto data = json::to_cbor(j);
+    send_response(request, json::to_cbor(response));
+}
+
+void ClientHandler::send_response(json request, std::vector<std::uint8_t> data) {
+    if (this->hPipe == nullptr || this->hPipe == INVALID_HANDLE_VALUE)
+        return;
+
     auto size = data.size();
     if (size == 0)
         return;
@@ -23,7 +29,17 @@ void ClientHandler::send_error_reply(json j)
     DWORD bytes_written = 0;
     WriteFile(hPipe, data.data(), size, &bytes_written, nullptr);
     if (bytes_written != size) {
-        fprintf(stderr, "foo_simpleserver: WriteFile failed when sending error response; %d bytes out of %d written. GetLastError() == %d\n", bytes_written, size, GetLastError());
+        std::ostringstream ss;
+        ss << "foo_simpleserver: WriteFile failed for request \"";
+        try {
+            ss << request["request_type"];
+        }
+        catch (...) {
+            ss << "<unknown>";
+        }
+        ss << "\"." << std::endl;
+        ss << "Asked to write " << size << " bytes, but " << bytes_written << " were written. GetLastError() = " << GetLastError() << std::endl;
+        fprintf(stderr, "%s\n", ss.str().c_str());
     }
 }
 
@@ -39,48 +55,44 @@ void ClientHandler::go() {
             fprintf(stderr, "foo_simpleserver: request too big, ignoring!\n");
             std::ostringstream ss;
             ss << "the request was bigger than the server's buffer size of " << REQUEST_BUFSIZE << " bytes.";
-            send_error_reply({
+            send_error_response({}, {
                 { "error", "request_too_big" },
                 { "error_description", ss.str() }
             });
-            return;
         }
         else {
             fprintf(stderr, "foo_simpleserver: ReadFile failed, ignoring request! GetLastError() == %d\n", GetLastError());
             std::ostringstream ss;
             ss << "unhandled error. Windows error code " << GetLastError() << ".";
-            send_error_reply({
+            send_error_response({}, {
                 { "error", "read_error" },
                 { "error_description", ss.str() }
             });
-            return;
-
         }
+
         return;
     }
-    assert(bytes_read > 0);
 
     DWORD bytes_written = 0;
     bool success = false;
     bool replySent = false;
 
-    std::vector<uint8_t> request(rawRequest, rawRequest + bytes_read);
-    json j;
+    std::vector<uint8_t> request_cbor(rawRequest, rawRequest + bytes_read);
+    json request;
     try {
-        j = json::from_cbor(request);
+        request = json::from_cbor(request_cbor);
     }
     catch (...) {
-        send_error_reply({
+        send_error_response({}, {
             { "error", "deserialization_error" },
             { "error_description", "from_cbor threw an exception; invalid data received" }
         });
         return;
     }
 
-    if (j.find("request_type") == j.end()) {
+    if (request.find("request_type") == request.end()) {
         // Request does not contain the "request_type" key, which is required.
-        // success and replySent are both set to false above.
-        send_error_reply({
+        send_error_response({}, {
             { "error", "invalid_request" },
             { "error_description", "request does not contain \"request_type\" key, which is required" }
         });
@@ -89,46 +101,22 @@ void ClientHandler::go() {
 
     //
     // This block handles requests that have response data associated with them.
-     if (j["request_type"] == "get_library") {
-        auto data = getLibraryInfo();
-        auto size = data.size();
-        if (size > 0) {
-            WriteFile(hPipe, data.data(), size, &bytes_written, nullptr);
-            replySent = true;
-            if (bytes_written != size)
-                fprintf(stderr, "foo_simpleserver: WriteFile failed! Asked to write %d bytes but %d bytes were written. GetLastError() == %d\n", size, bytes_written, GetLastError());
-            else
-                success = true;
-        }
-        else {
-            fprintf(stderr, "foo_simpleserver: getLibraryInfo failed, ignoring request\n");
-        }
+    //
+     if (request["request_type"] == "get_library") {
+         send_response(request, getLibraryInfo());
     }
-    else if (j["request_type"] == "get_playlists") {
-        auto data = getAllPlaylists();
-        auto size = data.size();
-        if (size > 0) {
-            WriteFile(hPipe, data.data(), size, &bytes_written, nullptr);
-            //			fprintf(stderr, "%d bytes written\n", bytes_written);
-            replySent = true;
-            if (bytes_written != size)
-                fprintf(stderr, "foo_simpleserver: WriteFile failed! Asked to write %d bytes but %d bytes were written. GetLastError() == %d\n", size, bytes_written, GetLastError());
-            else
-                success = true;
-        }
-        else {
-            fprintf(stderr, "foo_simpleserver: getAllPlaylists failed, ignoring request\n");
-        }
+    else if (request["request_type"] == "get_playlists") {
+        send_response(request, getAllPlaylists());
     }
-    else if (j["request_type"] == "get_playlist_tracks:") {
-        if (j.find("playlist_id") == j.end()) {
-            send_error_reply({
+    else if (request["request_type"] == "get_playlist_tracks:") {
+        if (request.find("playlist_id") == request.end()) {
+            send_error_response(request, {
                 { "error", "missing_parameter" },
                 { "error_description", "request type \"get_playlist_tracks:\" without required parameter playlist_id" }
             });
             return;
         }
-        t_size playlist_id = (t_size)j["playlist_id"];
+        t_size playlist_id = (t_size)request["playlist_id"];
         auto data = getPlaylistTracks(playlist_id);
         auto size = data.size();
         if (size > 0) {
@@ -147,10 +135,10 @@ void ClientHandler::go() {
 
 
     //
-    // This block handles requests that don't have any response data (expect an OK/error status) associated with them:
+    // This block handles requests that don't have any response data (except an OK/error status) associated with them:
     // play, enqueue, add_top, replace
     //
-    else if (j["request_type"] == "play:" || j["request_type"] == "enqueue:" || j["request_type"] == "add_top:" || j["request_type"] == "replace:") {
+    else if (request["request_type"] == "play:" || request["request_type"] == "enqueue:" || request["request_type"] == "add_top:" || request["request_type"] == "replace:") {
 
 
 
@@ -165,24 +153,33 @@ void ClientHandler::go() {
         struct url *urls = nullptr;
         uint32_t count = 0;
 
-        if (j["request_type"] == "play:")
+        if (request["request_type"] == "play:")
             play_tracks(urls, count);
-        else if (j["request_type"] == "enqueue:")
+        else if (request["request_type"] == "enqueue:")
             enqueue_tracks(urls, count);
-        else if (j["request_type"] == "add_top:")
+        else if (request["request_type"] == "add_top:")
             add_tracks_to_queue_top(urls, count);
-        else if (j["request_type"] == "replace:")
+        else if (request["request_type"] == "replace:")
             replace_queue_with_tracks(urls, count);
 
         success = true;
+    }
+    else {
+        // Catch-all: unknown request type!
+        send_error_response(request, {
+            { "error", "unknown_request" },
+            { "error_description", "request_type value not recognized" }
+        });
     }
 }
 
 ClientHandler::~ClientHandler()
 {
-    FlushFileBuffers(hPipe);
-    DisconnectNamedPipe(hPipe);
-    CloseHandle(hPipe);
+    if (hPipe && hPipe != INVALID_HANDLE_VALUE) {
+        FlushFileBuffers(hPipe);
+        DisconnectNamedPipe(hPipe);
+        CloseHandle(hPipe);
+    }
 
     if (rawRequest) {
         HeapFree(GetProcessHeap(), 0, rawRequest);

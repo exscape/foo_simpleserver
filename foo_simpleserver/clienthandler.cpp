@@ -99,19 +99,23 @@ void ClientHandler::go() {
     // play, enqueue, add_top, replace
     //
     else if (request["request_type"] == "play:" || request["request_type"] == "enqueue:" || request["request_type"] == "add_top:" || request["request_type"] == "replace:") {
+        if (request.find("tracks") == request.end()) {
+            std::ostringstream ss;
+            ss << "request type \"" << request["request_type"] << "\" requires a parameter of \"tracks\" (array of file:// URLs as strings)";
+            send_error_response(request, "missing_parameter", ss.str());
+            return;
+        }
 
-
-
-        /// TODO
-        /// FIXME
-        /// TODO
-        /// TODO
-        /// FIXME
-        /// FIXME
-
-
-        struct url *urls = nullptr;
-        uint32_t count = 0;
+        // I don't like this, but I don't want to rewrite every function that uses these values.
+        int i = 0;
+        int count = request["tracks"].size();
+        struct url *urls = new struct url[count];
+        for (auto &elem : request["tracks"]) {
+            if (elem.is_string()) {
+                std::string str = elem;
+                utf8cpy(urls[i++].urlString, str.c_str(), 260);
+            }
+        }
 
         if (request["request_type"] == "play:")
             play_tracks(urls, count);
@@ -125,6 +129,8 @@ void ClientHandler::go() {
         send_response(request, {
             { "ok", "request completed successfully" }
         });
+
+        delete[] urls;
 
     }
     else {
